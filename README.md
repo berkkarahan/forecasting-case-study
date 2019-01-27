@@ -10,7 +10,7 @@ Requirements can easily be installed using requirements.txt after creating a vir
 
 Once the requirements are met, you can run the file like;
 
-* pyton make_prediction.py --fname <the_excel_filename> --seed <random_seed>
+* python make_prediction.py --fname <the_excel_filename> --seed <random_seed>
 
 defaults for filename and seed are, data_analytics.xlsx and 123123.
 
