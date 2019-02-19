@@ -37,7 +37,7 @@ def resample(tseries, rate='15T', short_rate='S', max_gap=None):
 
     # check for datetime index
     assert isinstance(
-        tseries.index[0], pd.tslib.Timestamp), 'Object must have a datetime-like index.'
+        tseries.index[0], pd.Timestamp), 'Object must have a datetime-like index.'
 
     # sort tseries by time
     tseries.sort_index(inplace=True)
@@ -103,7 +103,7 @@ def resample_dask(tseries, rate='15T', short_rate='S', max_gap=None):
 
     # check for datetime index
     assert isinstance(
-        tseries.index[0], pd.tslib.Timestamp), 'Object must have a datetime-like index.'
+        tseries.index[0], pd.Timestamp), 'Object must have a datetime-like index.'
 
     # sort tseries by time
     tseries.sort_index(inplace=True)
@@ -235,11 +235,11 @@ def plotCoefficients(model, X_train):
     return coefs
 
 #X and Y should be numpy arrays
-def fit_model_cv(mdl, x, y, cv=5):
+def fit_model_cv(mdl, x, y, cvgen):
     def _fitmodel(mdl,x,y):
         return mdl.fit(x,y)
 
-    kfold = TimeSeriesSplit(n_splits=cv)
+    kfold = cvgen
     threadlist = []
     modlist = []
     train_ind = []
@@ -308,8 +308,8 @@ def test_stationarity(timeseries, window=12):
 
 def readexcel_set_df_names(fname, sheet):
     df = pd.read_excel(fname, sheet_name=sheet)
-    df.columns = df.iloc[0,:].values
-    df.drop(df.index[0], inplace=True)
+    df.columns = df.iloc[1,:].values
+    df.drop(df.index[0:2], inplace=True)
     df['Timestamp'] = pd.to_datetime(df['Timestamp'])
     df.set_index('Timestamp', inplace=True)
     df = df.astype(np.float)

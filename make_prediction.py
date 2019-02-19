@@ -5,7 +5,7 @@ import argparse
 #3rd party libraries
 import pandas as pd
 import numpy as np
-from sklearn.model_selection import TimeSeriesSplit
+from sklearn.model_selection import TimeSeriesSplit, RepeatedKFold, train_test_split
 from sklearn.linear_model import LassoCV
 from sklearn.preprocessing import StandardScaler
 from sklearn.ensemble import IsolationForest
@@ -37,8 +37,11 @@ parser.add_argument('--seed', action='store', dest='rand_seed', help='Random see
 
 results = parser.parse_args()
 
+
+
 def main():
     print("Reading train and test data from excel file: " + str(fname))
+    
     tr = readexcel_set_df_names(fname, 'Train')
     ts = readexcel_set_df_names(fname, 'Test')
 
@@ -53,36 +56,20 @@ def main():
     del tr;gc.collect()
     tr = trres.copy()
 
-    print("Detecting and imputing anomalies using custom anomaly detector using rolling mean and rolling std.")
-    for nm in ts.columns.values:
-        print("Imputing: " + str(nm) + " in test dataframe.")
-        df = ts[nm].copy()
-        sa_ = SimpleAnomalies(df, 6, 2)
-        sa_.explain_anomalies()
-        sa_.buildIndexes()
-        imputed = sa_.imputeAnomaliesRolling()
-        ts[nm] = imputed
-        del sa_, df;gc.collect()
-
-    for nm in tr.columns.values:
-        print("Imputing: " + str(nm) + " in train dataframe.")
-        df = tr[nm].copy()
-        sa_ = SimpleAnomalies(df, 6, 2)
-        sa_.explain_anomalies()
-        sa_.buildIndexes()
-        imputed = sa_.imputeAnomaliesRolling()
-        tr[nm] = imputed
-        del sa_, df;gc.collect()
-
-
-    x_tr, x_ts, y_tr, y_ts = TSSplit(tr.drop('Target',1),tr.Target, test_size=0.3)
-
+    print("Applying inter quartile range filtering to train dataset for anomaly detection and imputation.")
+    bool_tr = iqr_filter_outliers(tr.Target, inplace=False)
+    tr[bool_tr] = np.nan
+    tr = tr.interpolate(method='time')
+    tr.fillna(tr.mean(), inplace=True)
+    
+    x_tr, x_ts, y_tr, y_ts = train_test_split(tr.drop('Target',1), tr.Target, test_size=0.25, random_state = NB_Seed )
+    
     scaler = StandardScaler()
     x_tr_sc = scaler.fit_transform(x_tr)
     x_ts_sc = scaler.fit_transform(x_ts)
-    tscv = TimeSeriesSplit(n_splits=5)
+    rkf = RepeatedKFold(n_splits=5, n_repeats=2)
     print("Fitting LassoCV using TimeSeriesSplit cross validation generator.")
-    lasso = LassoCV(cv=tscv, random_state=NB_Seed, max_iter=2000, tol=0.001)
+    lasso = LassoCV(cv=rkf, random_state=NB_Seed, max_iter=2000, tol=0.001)
     lasso.fit(x_tr_sc, y_tr)
     coefs = pd.DataFrame(lasso.coef_, x_tr.columns)
     coefs.columns = ["coef"]
@@ -93,36 +80,6 @@ def main():
     trnz = tr.loc[:,nonzeroftrs].copy()
     ts = ts.loc[:,nonzeroftrs].copy()
     del scaler, x_tr_sc, x_ts_sc, lasso, coefs, nonzeroftrs;gc.collect()
-
-    x_tr, x_ts, y_tr, y_ts = TSSplit(trnz.drop('Target',1),trnz.Target, test_size=0.3)
-
-    print("Fitting isolation forest for anomaly detection.")
-    isfo = IsolationForest(n_estimators=1000,n_jobs=-1,random_state=NB_Seed)
-    mlist = fit_model_cv(isfo, x_tr.values, y_tr.values)
-
-    xval = trnz.drop('Target',1).values
-    outliers = pd.DataFrame()
-    mdlpreds = list()
-    for i, m in enumerate(mlist):
-        colnm = "model_" + str(i)
-        mdlpreds.append(colnm)
-        outliers[colnm] = m.predict(xval)
-    del mdlpreds;gc.collect()
-
-    outliers.index = trnz.index
-    outliers['sum_score'] = outliers.apply(lambda row:np.sum(row), axis=1)
-    outliers['outlier'] = outliers.apply(lambda row: 1 if row.sum_score <= -1 else 0, axis=1)
-    trnz = trnz.join(outliers.outlier)
-    trnz[trnz.outlier==1] = np.nan
-    trnz = trnz.interpolate(method='time')
-    trnz.drop('outlier',1,inplace=True)
-
-    print("Applying inter quartile range filtering to train dataset for anomaly detection and imputation.")
-    bool_tr = iqr_filter_outliers(trnz.Target, inplace=False)
-    trnz[bool_tr] = np.nan
-    trnz = trnz.interpolate(method='time')
-    trnz.fillna(trnz.mean(), inplace=True)
-    ts.drop('Target',1,inplace=True)
 
     tr_ = tr.copy()
     #naming convention
@@ -181,7 +138,7 @@ def main():
     del ts_cont, ts_cont_names, ts_cont_idx;gc.collect()
 
     #Split
-    x_tr_n, x_val_n, y_tr_n, y_val_n = TSSplit(tr_num.drop('Target',1),tr_num.Target, test_size=0.30)
+    x_tr_n, x_val_n, y_tr_n, y_val_n = train_test_split(tr.drop('Target',1), tr.Target, test_size=0.25, random_state = NB_Seed )
 
     #Dimensionality reduction before splitting time-features dataframe
     print("Reducing train and prediction(test) dataframe shapes to 30.")
@@ -190,7 +147,7 @@ def main():
     tr_tf = pd.DataFrame(data=trpca.fit_transform(tr_tf),index=tr_tf.index)
     tr_tf = tr_tf.join(tr_Target_)
     ts_tf = pd.DataFrame(data=tspca.fit_transform(ts_tf),index=ts_tf.index)
-    x_tr_t, x_val_t, y_tr_t, y_val_t = TSSplit(tr_tf.drop('Target',1),tr_tf.Target, test_size=0.30)
+    x_tr_t, x_val_t, y_tr_t, y_val_t = train_test_split(tr_tf.drop('Target',1),tr_tf.Target, test_size=0.25, random_state = NB_Seed )
 
     #RMSE
     def rmse(ytrue, ypred):
@@ -211,7 +168,7 @@ def main():
     metalr = LinearRegression(n_jobs=-1)
     stk = StackingCVRegressor(regressors=(ada,ext,xgb_t),
                                  meta_regressor=metalr,
-                                 cv=tscv,
+                                 cv=rkf,
                                  use_features_in_secondary=True)
 
     stk.fit(x_tr_n.values, y_tr_n.values)
@@ -221,7 +178,7 @@ def main():
 
     #best timefeatures model
     reg = SVR(kernel='linear')
-    mdls = fit_model_cv(reg, x_tr_t.values, y_tr_t.values)
+    mdls = fit_model_cv(reg, x_tr_t.values, y_tr_t.values, rkf)
 
     #preds for accuracy calculations
     y_pred_val = np.zeros((y_val_t.shape[0],len(mdls)))
