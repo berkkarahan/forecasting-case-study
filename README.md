@@ -1,7 +1,5 @@
 # forecasting-case-study
-A forecasting case study. The final output for the challenge is reached through running make_prediction.py . There are several jupyter notebooks showing / explaining the reasoning behind what is used in the final submission stage. 
-
-In order to see how I reached from notebook0 to final notebook please see the flowchart.jpg file.
+A forecasting case study. The final output for the challenge is reached through running make_prediction.py. There are several jupyter notebooks showing / explaining the reasoning behind what is used in the final submission stage. To view the notebooks, please see initial-sub and other branches.
 
 A general overview of the challenge can be seen in the Forecasting_Case_Study.pdf
 
