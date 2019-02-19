@@ -37,11 +37,15 @@ parser.add_argument('--seed', action='store', dest='rand_seed', help='Random see
 
 results = parser.parse_args()
 
-
+def clean_dataset(df):
+    assert isinstance(df, pd.DataFrame), "df needs to be a pd.DataFrame"
+    df.dropna(inplace=True)
+    indices_to_keep = ~df.isin([np.nan, np.inf, -np.inf]).any(1)
+    return df[indices_to_keep].astype(np.float64)
 
 def main():
     print("Reading train and test data from excel file: " + str(fname))
-    
+
     tr = readexcel_set_df_names(fname, 'Train')
     ts = readexcel_set_df_names(fname, 'Test')
 
@@ -60,15 +64,15 @@ def main():
     bool_tr = iqr_filter_outliers(tr.Target, inplace=False)
     tr[bool_tr] = np.nan
     tr = tr.interpolate(method='time')
-    tr.fillna(tr.mean(), inplace=True)
-    
+    tr.fillna(tr.mean(),inplace=True)
+
     x_tr, x_ts, y_tr, y_ts = train_test_split(tr.drop('Target',1), tr.Target, test_size=0.25, random_state = NB_Seed )
-    
+
     scaler = StandardScaler()
     x_tr_sc = scaler.fit_transform(x_tr)
     x_ts_sc = scaler.fit_transform(x_ts)
     rkf = RepeatedKFold(n_splits=5, n_repeats=2)
-    print("Fitting LassoCV using TimeSeriesSplit cross validation generator.")
+    print("Fitting LassoCV using RepeatedKFold cross validation generator.")
     lasso = LassoCV(cv=rkf, random_state=NB_Seed, max_iter=2000, tol=0.001)
     lasso.fit(x_tr_sc, y_tr)
     coefs = pd.DataFrame(lasso.coef_, x_tr.columns)
@@ -136,9 +140,10 @@ def main():
     del tr_nf, ts_nf, tr_cont;gc.collect()
     del tr_cont_names, tr_cont_idx;gc.collect()
     del ts_cont, ts_cont_names, ts_cont_idx;gc.collect()
-
+    #Fill NA
+    ts_num.fillna(ts_num.mean(), inplace=True)
     #Split
-    x_tr_n, x_val_n, y_tr_n, y_val_n = train_test_split(tr.drop('Target',1), tr.Target, test_size=0.25, random_state = NB_Seed )
+    x_tr_n, x_val_n, y_tr_n, y_val_n = train_test_split(tr_num.drop('Target',1), tr_num.Target, test_size=0.25, random_state = NB_Seed )
 
     #Dimensionality reduction before splitting time-features dataframe
     print("Reducing train and prediction(test) dataframe shapes to 30.")
@@ -157,7 +162,6 @@ def main():
     scrl = [mean_absolute_error, mean_squared_error, rmse, r2_score]
     scrn = ['MAE', 'MSE', 'RMSE', 'R2']
 
-
     def print_metric(metrictr, metricts ,mname):
         print(mname +' train: ' + str(metrictr) + ' test: ' + str(metricts))
 
@@ -173,6 +177,7 @@ def main():
 
     stk.fit(x_tr_n.values, y_tr_n.values)
     #Print out score metrics for numerical stacked models
+    print("--- Metrics for the stacked model ---")
     for i, s in enumerate(scrl):
         print_metric(s(y_tr_n.values, stk.predict(x_tr_n.values)), s(y_val_n.values, stk.predict(x_val_n.values)), scrn[i])
 
@@ -188,10 +193,14 @@ def main():
         y_pred_tr[:,i] = m.predict(x_tr_t.values)
     y_pred_val = y_pred_val.mean(axis=1)
     y_pred_tr = y_pred_tr.mean(axis=1)
-    #Print out score metrics for numerical stacked models
+    #Print out score metrics for time based stacked models
+    print("--- Metrics for the time features model ---")
     for i, s in enumerate(scrl):
         print_metric(s(y_tr_t.values, y_pred_tr), s(y_val_t.values, y_pred_val), scrn[i])
 
+
+    # Temprorary fix for ValueError: Input contains NaN, infinity or a value too large for dtype('float32')
+    ts_num = clean_dataset(ts_num)
     ###Making final-actual predictions
     #From sensor variables
     y_pred_final_num = stk.predict(ts_num.values)
