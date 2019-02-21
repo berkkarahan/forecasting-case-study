@@ -31,6 +31,7 @@ def resample(tseries, rate='15T', short_rate='S', max_gap=None):
     Copyright (c) 2017 WATTx GmbH
     License: Apache License
     """
+    print("Using custom 2-step resampling for variable: " + tseries.name)
     # return series if empty
     if tseries.empty:
         return tseries
@@ -71,10 +72,10 @@ def resample(tseries, rate='15T', short_rate='S', max_gap=None):
         assert rate_delta >= short_rate_delta, 'short_rate must be <= rate'
 
     # upsample to short_rate
-    tseries = tseries.resample(short_rate, how='mean').interpolate()
+    tseries = tseries.resample(short_rate).mean().interpolate()
 
     # downsample to desired rate
-    tseries = tseries.resample(rate, how='ffill')
+    tseries = tseries.resample(rate).ffill()
 
     # replace values in large gap itervals with NaN
     if max_gap is not None:

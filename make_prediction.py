@@ -1,14 +1,14 @@
 #standard libraries
 import gc
 import argparse
+import concurrent.futures
 
 #3rd party libraries
 import pandas as pd
 import numpy as np
-from sklearn.model_selection import TimeSeriesSplit, RepeatedKFold, train_test_split
+from sklearn.model_selection import RepeatedKFold, train_test_split
 from sklearn.linear_model import LassoCV
 from sklearn.preprocessing import StandardScaler
-from sklearn.ensemble import IsolationForest
 from sklearn.preprocessing import MinMaxScaler
 from xgboost import XGBRegressor
 from mlxtend.regressor import StackingCVRegressor
@@ -21,11 +21,9 @@ from sklearn.decomposition import PCA
 
 #customs
 from helpers.funcs import readexcel_set_df_names
-from helpers.funcs import resample, resample_dask
-from helpers.funcs import timeseries_train_test_split as TSSplit
+from helpers.funcs import resample
 from helpers.funcs import fit_model_cv
 from helpers.funcs import iqr_filter_outliers
-from helpers.anomalies import SimpleAnomalies
 
 #Default Globals
 fname = 'data_analytics.xlsx'
@@ -36,12 +34,6 @@ parser.add_argument('--fname', action='store', dest='file_name', help='Input exc
 parser.add_argument('--seed', action='store', dest='rand_seed', help='Random seed for some of the models.', type=int, default=123123)
 
 results = parser.parse_args()
-
-def clean_dataset(df):
-    assert isinstance(df, pd.DataFrame), "df needs to be a pd.DataFrame"
-    df.dropna(inplace=True)
-    indices_to_keep = ~df.isin([np.nan, np.inf, -np.inf]).any(1)
-    return df[indices_to_keep].astype(np.float64)
 
 def main():
     print("Reading train and test data from excel file: " + str(fname))
@@ -56,15 +48,14 @@ def main():
     trres = pd.DataFrame()
     for v in tr.columns.values:
         print("Using custom 2-step resampling for variable: " + str(v))
-        trres[v] = resample_dask(tr[v])
+        trres[v] = resample(tr[v])
     del tr;gc.collect()
     tr = trres.copy()
 
     print("Applying inter quartile range filtering to train dataset for anomaly detection and imputation.")
     bool_tr = iqr_filter_outliers(tr.Target, inplace=False)
     tr[bool_tr] = np.nan
-    tr = tr.interpolate(method='time')
-    tr.fillna(tr.mean(),inplace=True)
+    tr.fillna(tr.median(),inplace=True)
 
     x_tr, x_ts, y_tr, y_ts = train_test_split(tr.drop('Target',1), tr.Target, test_size=0.25, random_state = NB_Seed )
 
@@ -134,7 +125,7 @@ def main():
     ts_cont.columns = ts_cont_names
     tr_cont.index = tr_cont_idx
     ts_cont.index = ts_cont_idx
-    tr_num = tr_cont.join(tr_Target)#.join(tr_Target)
+    tr_num = tr_cont.join(tr_Target)
     ts_num = ts_cont.copy()
     del tr_Target;gc.collect()
     del tr_nf, ts_nf, tr_cont;gc.collect()
@@ -199,8 +190,12 @@ def main():
         print_metric(s(y_tr_t.values, y_pred_tr), s(y_val_t.values, y_pred_val), scrn[i])
 
 
-    # Temprorary fix for ValueError: Input contains NaN, infinity or a value too large for dtype('float32')
-    ts_num = clean_dataset(ts_num)
+    # Temp fix, 'Target' is added to ts_num dataframe
+    try:
+        ts_num.drop('Target',1,inplace=True)
+    except:
+        print("ok")
+    print("--- Making predictions for submission ---")
     ###Making final-actual predictions
     #From sensor variables
     y_pred_final_num = stk.predict(ts_num.values)
